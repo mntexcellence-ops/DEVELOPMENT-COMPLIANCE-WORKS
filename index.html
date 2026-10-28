@@ -484,7 +484,7 @@ function openStatusPopup(st){ fsStatus=st; fsEditRn=null; setFsTab('list'); rend
   const tok=document.getElementById('fsToken'); if(tok && !tok.value) tok.value=fsGet('dev-entry-token');
   const url=document.getElementById('fsUrl'); if(url && !url.value) url.value=scriptUrl();
   if(url) url.disabled=!!(allowedUnit() && allowedUnit()!=='ALL'); }
-function closeStatusPopup(){ document.getElementById('fsModal').style.display='none'; document.body.style.overflow=''; }
+function closeStatusPopup(){ window.__autoLogin=false; document.getElementById('fsModal').style.display='none'; document.body.style.overflow=''; }
 function setFsTab(t){ fsTab=t;
   document.getElementById('fsTabList').className='fsbtn'+(t==='list'?' pri':'');
   document.getElementById('fsTabAdd').className='fsbtn'+(t==='add'?' pri':'');
@@ -571,15 +571,17 @@ function fsSaveSetup(){ const uEl=document.getElementById('fsUrl'), tEl=document
         if(uEl) uEl.disabled=false;
         if(u!==oldEff){
           return fetch(oldEff+'?'+new URLSearchParams({action:'seturl',token:tok,newurl:u,cb:Date.now()}),{redirect:'follow'}).then(r=>r.json()).then(sj=>{
-            if(sj && sj.ok){ window.__cfgUrl=u; fsSet('dev-entry-url-manual',''); fsSay('✅ Setup saved — new script URL updated for everyone.','ok'); }
+            if(sj && sj.ok){ window.__cfgUrl=u; fsSet('dev-entry-url-manual',''); fsSay('✅ Setup saved — new script URL updated for everyone.','ok'); if(window.__autoLogin) closeStatusPopup(); }
             else { fsSet('dev-entry-url-manual','1'); fsSay('✅ Setup saved in this browser, but the central URL update failed ('+(sj&&sj.error||'check the old deployment')+') — others will still use the old URL until the file is updated.','err'); }
             render(); renderFsTable();
           }).catch(()=>{ fsSet('dev-entry-url-manual','1'); fsSay('✅ Setup saved in this browser, but the central URL update could not be reached — others will still use the old URL.','err'); render(); renderFsTable(); });
         }
         fsSay('✅ Setup saved — you can edit all units.','ok');
+        if(window.__autoLogin) closeStatusPopup();
       } else {
         if(uEl) uEl.disabled=true;
         fsSay('✅ Setup saved — you can edit only '+j.unit+'.','ok');
+        if(window.__autoLogin) closeStatusPopup();
       }
     } else fsSay('❌ Wrong password for this script URL — please check it and save again.','err');
     render(); renderFsTable();
@@ -639,5 +641,6 @@ async function fsSaveEdit(rn){
   }catch(e){ fsSay('❌ Save failed: '+e.message,'err'); }
 }
 buildFilters(); applyTheme(); render(); refreshLive(false); fetchScriptConfig();
+if(!allowedUnit()){ openStatusPopup('all'); const _s=document.getElementById('fsSettings'); if(_s) _s.style.display='block'; window.__autoLogin=true; }
 </script>
 </body></html>
