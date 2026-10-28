@@ -198,7 +198,7 @@ tr.tot td{font-weight:800;color:var(--text);background:#EFFAF3;border-top:2px so
   <div id="fsSettings" style="display:none;background:var(--card);border-bottom:1px solid var(--border);padding:12px 18px">
     <label style="font-size:11px;color:var(--muted)">Apps Script Web app URL — for THIS sheet only (deploy the new Code.gs file, then paste the URL here once)</label>
     <input id="fsUrl" class="efinput" placeholder="https://script.google.com/macros/s/.../exec">
-    <label style="font-size:11px;color:var(--muted)">Password (ENTRY_TOKEN from that script)</label>
+    <label style="font-size:11px;color:var(--muted)">Password — your own unit password, or the master ENTRY_TOKEN (each factory person uses only their own password)</label>
     <input type="password" id="fsToken" class="efinput" placeholder="Password set in Apps Script">
     <label style="font-size:12px;color:var(--body)"><input type="checkbox" id="fsRemember"> Remember password on this device</label>
     <div><button class="fsbtn pri" style="margin-top:8px" onclick="fsSaveSetup()">Save setup</button></div>
@@ -393,7 +393,7 @@ function render(){
   const sub=document.getElementById('tblListSub'); if(sub) sub.textContent=`${a.n} project(s) in the selected filters — scroll inside the table`;
   setHTML('tblList', a.rows.length?
     `<table><tr><th>SL</th><th>Unit</th><th>Project</th><th>Status</th><th class="num">Budget (BDT)</th><th>Start Date</th><th>Possible End Date</th><th>Finish Date</th><th>Progress</th><th class="num">Disbursed (BDT)</th><th>Remarks</th><th>Edit</th></tr>`+
-    a.rows.map(r=>`<tr${isOverdue(r)?' class="odrow"':''}><td>${esc(r.sl)}</td><td><b>${r.unit}</b></td><td>${esc(r.name)}</td><td>${statusChip(r.status)}</td><td class="num">${fmtN(r.budget)}</td><td>${fmtD(r.start)}</td><td>${fmtD(r.expected)}${(!odFromRevised(r) && odBadge(r))?'<br>'+odBadge(r):''}</td><td>${fmtD(r.revised)}${(odFromRevised(r) && odBadge(r))?'<br>'+odBadge(r):''}</td><td><span class="pbar"><i style="width:${Math.min(100,Math.max(0,r.prog))}%"></i></span> ${r.prog}%</td><td class="num">${fmtN(r.disb)}</td><td>${esc(r.remarks)}</td><td><button class="fsbtn" onclick="openListEdit(${D.rows.indexOf(r)+3})">✏️ Edit</button></td></tr>`).join('')+`</table>`:nodata);
+    a.rows.map(r=>`<tr${isOverdue(r)?' class="odrow"':''}><td>${esc(r.sl)}</td><td><b>${r.unit}</b></td><td>${esc(r.name)}</td><td>${statusChip(r.status)}</td><td class="num">${fmtN(r.budget)}</td><td>${fmtD(r.start)}</td><td>${fmtD(r.expected)}${(!odFromRevised(r) && odBadge(r))?'<br>'+odBadge(r):''}</td><td>${fmtD(r.revised)}${(odFromRevised(r) && odBadge(r))?'<br>'+odBadge(r):''}</td><td><span class="pbar"><i style="width:${Math.min(100,Math.max(0,r.prog))}%"></i></span> ${r.prog}%</td><td class="num">${fmtN(r.disb)}</td><td>${esc(r.remarks)}</td><td>${canEditUnit(r.unit)?'<button class="fsbtn" onclick="openListEdit('+(D.rows.indexOf(r)+3)+')">✏️ Edit</button>':''}</td></tr>`).join('')+`</table>`:nodata);
   const uRows=Object.entries(a.byUnit).sort((x,y)=>y[1].b-x[1].b);
   setHTML('tblUnit', uRows.length?
     `<table><tr><th>Unit</th><th class="num">Projects</th><th class="num">Completed</th><th class="num">Budget (BDT)</th><th class="num">Disbursed (BDT)</th><th class="num">Remaining (BDT)</th><th class="num">Disb %</th><th class="num">Avg Progress</th></tr>`+
@@ -496,6 +496,9 @@ function openAddProject(){ openStatusPopup('all'); setFsTab('add'); }
 function fsBuildAddLists(){
   const us=document.getElementById('faUnit');
   if(us) us.innerHTML=D.units.map(u=>`<option>${u}</option>`).join('');
+  const au=allowedUnit();
+  if(us && au && au!=='ALL'){ us.value=au; us.disabled=true; }
+  else if(us) us.disabled=false;
   const bs=[...new Set(D.rows.map(r=>r.bstat).filter(Boolean))].sort();
   const ms=[...new Set(D.rows.map(r=>r.mstat).filter(Boolean))].sort();
   const bl=document.getElementById('faBstatList'); if(bl) bl.innerHTML=bs.map(v=>`<option value="${esc(v)}">`).join('');
@@ -535,9 +538,23 @@ async function fsAddSave(){
 }
 document.addEventListener('keydown', e=>{ if(e.key==='Escape' && document.getElementById('fsModal').style.display==='flex') closeStatusPopup(); });
 function toggleFsSettings(){ const s=document.getElementById('fsSettings'); if(s) s.style.display=s.style.display==='none'?'block':'none'; }
+/* Per-unit lock (UI convenience only — the script enforces it on every save).
+   '' = unknown (show everything, server decides); 'ALL' = master; else one unit. */
+function allowedUnit(){ return window.__allowedUnit || fsGet('dev-allowed-unit') || ''; }
+function canEditUnit(u){ const a=allowedUnit(); return !a || a==='ALL' || a.toUpperCase()===(u||'').toUpperCase(); }
 function fsSaveSetup(){ const u=(document.getElementById('fsUrl')||{}).value.trim();
   if(!u){ fsSay('Enter the Apps Script Web app URL first.','err'); return; }
-  fsSet('dev-entry-url',u); fsSay('✅ Setup saved. You can now edit rows.','ok'); }
+  fsSet('dev-entry-url',u);
+  const tok=(document.getElementById('fsToken')||{}).value.trim();
+  const rem=!!(document.getElementById('fsRemember')||{}).checked;
+  if(!tok){ fsSay('✅ Setup saved. Enter your password above to lock editing to your unit.','ok'); return; }
+  fetch(u+'?'+new URLSearchParams({action:'whoami',token:tok,cb:Date.now()}),{redirect:'follow'}).then(r=>r.json()).then(j=>{
+    if(j && j.ok && j.unit){ window.__allowedUnit=j.unit;
+      if(rem){ fsSet('dev-entry-token',tok); fsSet('dev-allowed-unit',j.unit); }
+      fsSay(j.unit==='ALL'?'✅ Setup saved — you can edit all units.':'✅ Setup saved — you can edit only '+j.unit+'.','ok');
+    } else fsSay('❌ Wrong password for this script URL — please check it and save again.','err');
+    render(); renderFsTable();
+  }).catch(()=>{ fsSay('✅ Setup saved. (Unit check failed — the server will still check every save.)','ok'); render(); renderFsTable(); }); }
 function renderFsTable(){
   const pairs=fsPairs();
   const tb=pairs.reduce((s,p)=>s+p.r.budget,0), td=pairs.reduce((s,p)=>s+p.r.disb,0);
@@ -557,7 +574,7 @@ function renderFsTable(){
         `<td><input id="fsRe" class="efinput" value="${esc(r.remarks)}" style="min-width:160px"></td>`+
         `<td style="white-space:nowrap"><button class="fsbtn pri" onclick="fsSaveEdit(${rn})">Save</button> <button class="fsbtn" onclick="fsCancelEdit()">Cancel</button></td></tr>`;
       }
-      return `<tr><td>${esc(r.sl)}</td><td><b>${r.unit}</b></td><td>${esc(r.name)}</td><td>${statusChip(r.status)}</td><td class="num">${fmtN(r.budget)}</td><td>${fmtD(r.start)}</td><td>${fmtD(r.expected)}</td><td>${fmtD(r.revised)}</td><td><span class="pbar"><i style="width:${Math.min(100,Math.max(0,r.prog))}%"></i></span> ${r.prog}%</td><td class="num">${fmtN(r.disb)}</td><td>${esc(r.remarks)}</td><td><button class="fsbtn" onclick="fsEdit(${rn})">Edit</button></td></tr>`;
+      return `<tr><td>${esc(r.sl)}</td><td><b>${r.unit}</b></td><td>${esc(r.name)}</td><td>${statusChip(r.status)}</td><td class="num">${fmtN(r.budget)}</td><td>${fmtD(r.start)}</td><td>${fmtD(r.expected)}</td><td>${fmtD(r.revised)}</td><td><span class="pbar"><i style="width:${Math.min(100,Math.max(0,r.prog))}%"></i></span> ${r.prog}%</td><td class="num">${fmtN(r.disb)}</td><td>${esc(r.remarks)}</td><td>${canEditUnit(r.unit)?'<button class="fsbtn" onclick="fsEdit('+rn+')">Edit</button>':''}</td></tr>`;
     }).join('')+`</table>`
     : '<p style="color:'+thc().nodata+';font-size:13px">No projects in this status yet. If a project gets this status in the Sheet, it will appear here automatically.</p>';
   setHTML('fsTable', tbl);
